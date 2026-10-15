@@ -28,7 +28,17 @@ object CallRecordingPublisher {
      * that a Whisper-capable key is needed.
      */
     fun sttFrom(cfg: AiSettings.Config): Stt? {
-        // A dedicated Whisper key wins, whatever the chat provider is —
+        // Custom providers keep audio on their configured host even when a
+        // dedicated speech key is supplied. Never send that private key/audio
+        // to OpenAI merely because the key is separate from the chat key.
+        if (cfg.provider == AiSettings.Provider.Custom) {
+            val key = cfg.sttApiKey.ifBlank { cfg.apiKey }
+            val base = cfg.baseUrl?.takeIf { it.isNotBlank() } ?: return null
+            if (key.isBlank()) return null
+            val endpoint = runCatching { audioEndpoint(base) }.getOrNull() ?: return null
+            return Stt(endpoint, key, WHISPER_MODEL)
+        }
+        // A dedicated Whisper key wins for the remaining cloud providers —
         // this is how an Anthropic/OpenRouter user gets transcripts.
         cfg.sttApiKey.takeIf { it.isNotBlank() }?.let {
             return Stt(OPENAI_STT, it, WHISPER_MODEL)
@@ -54,6 +64,9 @@ object CallRecordingPublisher {
      *  a bare base, a `/v1`, or a full chat-completions URL. */
     internal fun audioEndpoint(baseUrl: String): String {
         var b = baseUrl.trim().trimEnd('/')
+        require(Regex("https?://[^/@?#\\s]+(?:/[^?#\\s]*)?").matches(b)) { "Invalid speech endpoint" }
+        if (b.endsWith("/audio/transcriptions")) return b
+        if ('/' !in b.substringAfter("://")) b += "/v1"
         for (suffix in listOf("/chat/completions", "/completions", "/responses")) {
             if (b.endsWith(suffix)) b = b.dropLast(suffix.length)
         }

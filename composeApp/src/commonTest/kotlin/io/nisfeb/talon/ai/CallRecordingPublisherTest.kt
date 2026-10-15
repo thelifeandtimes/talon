@@ -70,4 +70,21 @@ class CallRecordingPublisherTest {
             CallRecordingPublisher.audioEndpoint("https://host.example/v1/"),
         )
     }
+    @Test
+    fun customDedicatedSpeechKeyStaysOnPrivateHost() {
+        val stt = CallRecordingPublisher.sttFrom(cfg(AiSettings.Provider.Custom,
+            apiKey = "chat-key", sttApiKey = "speech-key", baseUrl = "http://127.0.0.1:7431/v1"))
+        assertEquals("http://127.0.0.1:7431/v1/audio/transcriptions", stt?.endpoint)
+        assertEquals("speech-key", stt?.key)
+        assertEquals("http://127.0.0.1:7431/v1/audio/transcriptions",
+            CallRecordingPublisher.audioEndpoint("http://127.0.0.1:7431"))
+        assertEquals("http://127.0.0.1:7431/v1/audio/transcriptions",
+            CallRecordingPublisher.audioEndpoint("http://127.0.0.1:7431/v1/audio/transcriptions"))
+    }
+
+    @Test
+    fun invalidCustomHostDoesNotFallBackToOpenAi() {
+        assertNull(CallRecordingPublisher.sttFrom(cfg(AiSettings.Provider.Custom,
+            apiKey = "chat-key", sttApiKey = "speech-key", baseUrl = "not a URL")))
+    }
 }

@@ -2,6 +2,7 @@ package io.nisfeb.talon.ai
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 
 class CallTranscribeTest {
 
@@ -32,8 +33,16 @@ class CallTranscribeTest {
     }
 
     @Test
-    fun emptyOnGarbageOrNoText() {
-        assertEquals(0, CallTranscribe.parse("not json").size)
+    fun invalidJsonFailsButSilenceSucceeds() {
+        assertFails { CallTranscribe.parse("not json") }
+        assertFails { CallTranscribe.parse("{}") }
         assertEquals(0, CallTranscribe.parse("""{"text":"   "}""").size)
+    }
+    @Test
+    fun invalidTimingDoesNotBecomeZero() {
+        for (start in listOf("-1", "1e309", "null", "\"oops\"")) {
+            assertFails { CallTranscribe.parse("""{"text":"hello","segments":[{"text":"hello","start":$start}]}""") }
+        }
+        assertFails { CallTranscribe.parse("""{"text":"hello","segments":[{"text":"hello","start":2,"end":1}]}""") }
     }
 }

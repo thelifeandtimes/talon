@@ -91,7 +91,7 @@ object CallTranscribe {
             )
         }
         if (!res.status.isSuccess()) {
-            error("transcription failed: ${res.status.value} ${res.bodyAsText().take(200)}")
+            error("transcription failed (HTTP ${res.status.value})")
         }
         parse(res.bodyAsText())
     }
@@ -103,17 +103,25 @@ object CallTranscribe {
      * without a network call.
      */
     fun parse(body: String): List<Segment> {
+        require(body.length <= 8 * 1024 * 1024) { "Transcription response exceeds limit" }
         val obj = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
-            ?: return emptyList()
-        val segs = (obj["segments"])?.let { runCatching { it.jsonArray }.getOrNull() }
+            ?: error("Invalid transcription JSON")
+        require(obj["text"]?.jsonPrimitive?.isString == true) { "Transcription omitted text" }
+        val segs = obj["segments"]?.jsonArray
         if (segs != null && segs.isNotEmpty()) {
             return segs.mapNotNull { el ->
-                val s = runCatching { el.jsonObject }.getOrNull() ?: return@mapNotNull null
+                val s = el.jsonObject
                 val text = s["text"]?.jsonPrimitive?.content?.trim().orEmpty()
                 if (text.isEmpty()) return@mapNotNull null
-                val startSec = s["start"]?.jsonPrimitive?.doubleOrNull ?: 0.0
+                val startSec = s["start"]?.jsonPrimitive?.doubleOrNull
+                    ?: error("Transcription segment omitted start time")
+                require(startSec.isFinite() && startSec >= 0 && startSec <= Long.MAX_VALUE / 1000.0) { "Invalid transcription start time" }
+                s["end"]?.let { end ->
+                    val endSec = end.jsonPrimitive.doubleOrNull ?: error("Invalid transcription end time")
+                    require(endSec.isFinite() && endSec >= startSec) { "Invalid transcription end time" }
+                }
                 Segment((startSec * 1000).toLong(), text)
-            }
+            }.sortedBy { it.startMs }
         }
         val whole = obj["text"]?.jsonPrimitive?.content?.trim().orEmpty()
         return if (whole.isEmpty()) emptyList() else listOf(Segment(0, whole))
